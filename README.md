@@ -19,7 +19,7 @@ Microservicio independiente para el análisis de causa raíz de incidentes. Esta
 
 ## Configuración y despliegue aislado
 
-En PowerShell, define un secreto de desarrollo local antes de desplegar (no lo guardes en Git):
+En integración, el stack lee el secreto compartido desde el parámetro SSM SecureString `/itsm/{stage}/jwt-secret`, que debe contener el mismo secreto usado para firmar los JWT. El despliegue aislado permite usar `JWT_SECRET` del entorno como alternativa si el parámetro todavía no está creado. No guardes el secreto en Git:
 
 ```powershell
 $env:JWT_SECRET = "reemplaza-por-un-secreto-local-largo"
@@ -62,7 +62,12 @@ El tópico y la cola locales permiten desarrollar sin `itsm-infra`. El consumido
 
 Al resolver desde el consumidor, el registro conserva una marca pendiente hasta que SNS confirma la publicación; un reintento puede volver a publicar el evento, por lo que los consumidores deben tolerar duplicados.
 
-Estos recursos son locales para desarrollo aislado. Antes de integrar, acuerda con el equipo los ARN y permisos para usar SNS/SQS compartidos y el formato de `/itsm/{stage}/...`; no conectes tópicos de producción duplicados ni sustituyas los recursos locales hasta tener esos datos.
+Estos recursos son locales para desarrollo aislado. Antes de integrar:
+
+1. Pide al integrante 1 los parámetros `/itsm/{stage}/sns-eventos-arn` y `/itsm/{stage}/q-problemas-arn`, además de los permisos para publicar en SNS y consumir de SQS. Sustituye `ProblemasEventsTopic`, `ProblemasDLQ`, `ProblemasQueue`, `ProblemasQueuePolicy` y `ProblemasSubscription` por esos recursos compartidos; no elimines los recursos locales antes de tener los ARN y coordinar el despliegue.
+2. Pide al integrante 5 que publique el JWT compartido como SecureString en `/itsm/{stage}/jwt-secret`, con permisos de lectura para el rol de despliegue.
+
+No conectes tópicos de producción duplicados ni sustituyas los recursos locales hasta tener esos datos.
 
 ## Datos ficticios
 

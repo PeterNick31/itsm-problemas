@@ -10,7 +10,7 @@ provider:
     PROBLEMAS_TABLE: ${self:service}-${sls:stage}-problemas
     EVENTS_TOPIC_ARN:
       Ref: ProblemasEventsTopic
-    JWT_SECRET: ${env:JWT_SECRET}
+    JWT_SECRET: ${ssm:/itsm/${sls:stage}/jwt-secret~true, env:JWT_SECRET}
   iam:
     role: arn:aws:iam::${aws:accountId}:role/LabRole
 
