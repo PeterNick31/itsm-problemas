@@ -8,8 +8,7 @@ provider:
   stage: ${opt:stage, 'dev'}
   environment:
     PROBLEMAS_TABLE: ${self:service}-${sls:stage}-problemas
-    EVENTS_TOPIC_ARN:
-      Ref: ProblemasEventsTopic
+    EVENTS_TOPIC_ARN: ${ssm:/itsm/${sls:stage}/sns-eventos-arn}
     JWT_SECRET: ${ssm:/itsm/${sls:stage}/jwt-secret~true, env:JWT_SECRET}
   iam:
     role: arn:aws:iam::${aws:accountId}:role/LabRole
@@ -90,8 +89,7 @@ functions:
     timeout: 30
     events:
       - sqs:
-          arn:
-            Fn::GetAtt: [ProblemasQueue, Arn]
+          arn: ${ssm:/itsm/${sls:stage}/q-problemas-arn}
           batchSize: 10
           functionResponseType: ReportBatchItemFailures
 
@@ -123,55 +121,6 @@ resources:
                 KeyType: RANGE
             Projection:
               ProjectionType: ALL
-    ProblemasEventsTopic:
-      Type: AWS::SNS::Topic
-      Properties:
-        TopicName: itsm-eventos-problemas-${sls:stage}
-    ProblemasDLQ:
-      Type: AWS::SQS::Queue
-      Properties:
-        QueueName: q-problemas-${sls:stage}-dlq
-        MessageRetentionPeriod: 1209600
-    ProblemasQueue:
-      Type: AWS::SQS::Queue
-      Properties:
-        QueueName: q-problemas-${sls:stage}
-        VisibilityTimeout: 180
-        RedrivePolicy:
-          deadLetterTargetArn:
-            Fn::GetAtt: [ProblemasDLQ, Arn]
-          maxReceiveCount: 3
-    ProblemasQueuePolicy:
-      Type: AWS::SQS::QueuePolicy
-      Properties:
-        Queues:
-          - Ref: ProblemasQueue
-        PolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service: sns.amazonaws.com
-              Action: sqs:SendMessage
-              Resource:
-                Fn::GetAtt: [ProblemasQueue, Arn]
-              Condition:
-                ArnEquals:
-                  aws:SourceArn:
-                    Ref: ProblemasEventsTopic
-    ProblemasSubscription:
-      Type: AWS::SNS::Subscription
-      Properties:
-        TopicArn:
-          Ref: ProblemasEventsTopic
-        Protocol: sqs
-        Endpoint:
-          Fn::GetAtt: [ProblemasQueue, Arn]
-        FilterPolicy:
-          evento:
-            - incidente.escalado_a_problema
-            - cambio.implementado
-        RawMessageDelivery: true
     Default4xxGatewayResponse:
       Type: AWS::ApiGateway::GatewayResponse
       Properties:
@@ -208,6 +157,3 @@ resources:
     ProblemasTableName:
       Value:
         Ref: ProblemasTable
-    ProblemasEventsTopicArn:
-      Value:
-        Ref: ProblemasEventsTopic

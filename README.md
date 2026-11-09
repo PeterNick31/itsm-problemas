@@ -1,25 +1,27 @@
 # itsm-problemas
 
-Microservicio independiente para el análisis de causa raíz de incidentes. Esta primera versión se puede desarrollar y probar sin esperar al resto del equipo: crea su DynamoDB, su tópico SNS, su cola SQS y su DLQ. Al integrar el proyecto grupal se conecta al tópico/cola compartidos y al authorizer del integrante 5.
+Microservicio de análisis de causa raíz de incidentes. El stack crea la tabla DynamoDB y consume/publica eventos mediante el bus SNS y la cola SQS compartidos de `itsm-infra`.
 
 ## Requisitos
 
 - Python 3.12
 - Node.js 20 y npm
-- AWS CLI configurado y permisos para desplegar Lambda, API Gateway, DynamoDB, SNS y SQS
+- AWS CLI configurado; `LabRole` con permisos para Lambda, API Gateway, DynamoDB, lectura de SSM, publicación SNS y consumo SQS
 - Serverless Framework 3: `npm install --global serverless@3`
 
 ## Archivos principales
 
-- `serverless.yml`: API, tabla, autorización local y recursos de eventos.
+- `serverless.yml`: API, tabla, autorización y referencias SSM a la infraestructura compartida.
 - `src/handlers/problemas.py`: endpoints CRUD y flujos de estado.
 - `src/consumers/events.py`: reacciones a escalamiento de incidentes e implementación de cambios.
 - `seed/seed_problemas.py`: datos ficticios repetibles por tenant.
 - `docs/modelo.json`: esquema para el informe.
 
-## Configuración y despliegue aislado
+## Requisitos para desplegar
 
-En integración, el stack lee el secreto compartido desde el parámetro SSM SecureString `/itsm/{stage}/jwt-secret`, que debe contener el mismo secreto usado para firmar los JWT. El despliegue aislado permite usar `JWT_SECRET` del entorno como alternativa si el parámetro todavía no está creado. No guardes el secreto en Git:
+Antes de desplegar, `itsm-infra` debe estar desplegado en la **misma cuenta AWS** y en `us-east-1` para el stage elegido. El stack lee los parámetros `/itsm/{stage}/sns-eventos-arn` y `/itsm/{stage}/q-problemas-arn` que Infra publica. El rol `LabRole` debe poder leer esos parámetros, publicar al tópico y consumir de la cola.
+
+El JWT se valida con el secreto compartido guardado como SecureString en `/itsm/{stage}/jwt-secret`. Este debe ser el mismo secreto que usa el servicio de autenticación. Para una prueba completamente aislada, se puede usar `JWT_SECRET` del entorno como alternativa, pero el stack sigue necesitando el bus SNS/SQS compartido. No guardes secretos en Git:
 
 ```powershell
 $env:JWT_SECRET = "reemplaza-por-un-secreto-local-largo"
@@ -55,19 +57,14 @@ El tenant siempre se obtiene del contexto del token; el body no puede elegir el 
 
 ## Eventos incluidos
 
-El tópico y la cola locales permiten desarrollar sin `itsm-infra`. El consumidor procesa:
+El consumidor escucha la cola compartida `q-problemas`, que Infra suscribe al tópico común con filtro por el atributo SNS `evento`. El productor publica al tópico común e incluye ese atributo. Infra configura `RawMessageDelivery: true`; por eso el consumidor acepta directamente el sobre JSON del evento y también el sobre SNS estándar. Los eventos procesados son:
 
 - `incidente.escalado_a_problema`: crea idempotentemente un problema vinculado al incidente.
 - `cambio.implementado`: marca el problema como `RESUELTO` y publica `problema.resuelto`. Si el evento no incluye `problema_id` (por ejemplo, un cambio originado desde Solicitudes), se ignora.
 
 Al resolver desde el consumidor, el registro conserva una marca pendiente hasta que SNS confirma la publicación; un reintento puede volver a publicar el evento, por lo que los consumidores deben tolerar duplicados.
 
-Estos recursos son locales para desarrollo aislado. Antes de integrar:
-
-1. Pide al integrante 1 los parámetros `/itsm/{stage}/sns-eventos-arn` y `/itsm/{stage}/q-problemas-arn`, además de los permisos para publicar en SNS y consumir de SQS. Sustituye `ProblemasEventsTopic`, `ProblemasDLQ`, `ProblemasQueue`, `ProblemasQueuePolicy` y `ProblemasSubscription` por esos recursos compartidos; no elimines los recursos locales antes de tener los ARN y coordinar el despliegue.
-2. Pide al integrante 5 que publique el JWT compartido como SecureString en `/itsm/{stage}/jwt-secret`, con permisos de lectura para el rol de despliegue.
-
-No conectes tópicos de producción duplicados ni sustituyas los recursos locales hasta tener esos datos.
+La cola compartida tiene su DLQ y política de reintentos gestionadas por Infra. Los consumidores deben ser idempotentes porque SQS ofrece entrega al menos una vez.
 
 ## Datos ficticios
 
@@ -87,13 +84,13 @@ La opción `todos` carga 10,000 registros en cada tenant (`acme`, `globex`, `ini
 python -m unittest discover -s tests -v
 ```
 
-Las pruebas unitarias del JWT no requieren AWS ni paquetes externos. Para probar los endpoints, despliega el stack aislado en una cuenta AWS de desarrollo y usa el token local indicado arriba.
+Las pruebas unitarias no requieren acceso a AWS. Para probar endpoints y eventos desplegados, primero debe estar disponible `itsm-infra` en la misma cuenta y región, y deben existir el secreto JWT y los permisos necesarios.
 
 ## Integración con el grupo
 
-1. Reemplazar el authorizer local por el ARN acordado en `/itsm/{stage}/authorizer-arn`.
-2. Configurar el tópico SNS y la cola SQS compartidos desde los parámetros SSM del proyecto.
-3. Confirmar con Incidentes el contenido de `incidente.escalado_a_problema`, y con Cambios que `cambio.implementado` incluya `tenant_id` y `problema_id`.
+1. Verificar que Infra esté desplegada en la misma cuenta AWS, región `us-east-1` y stage `dev`, y que existan sus dos parámetros SSM de SNS/SQS.
+2. Confirmar con el integrante 5 el formato del JWT y que `/itsm/dev/jwt-secret` sea el secreto compartido. El authorizer local del microservicio puede sustituirse al acordar el ARN del authorizer común.
+3. Confirmar con Incidentes el contenido de `incidente.escalado_a_problema` y con Cambios que `cambio.implementado` incluya `tenant_id` y `problema_id`.
 4. Compartir IDs de prueba con Cambios y la URL de API con el responsable del frontend.
 
-La base de desarrollo no incluye credenciales reales ni necesita que esas integraciones estén disponibles.
+No subas credenciales reales ni despliegues el microservicio antes de que Infra publique los parámetros requeridos.
