@@ -1,0 +1,32 @@
+{
+  "tabla": "itsm-problemas-{stage}-problemas",
+  "claves": {
+    "partition": "tenant_id",
+    "sort": "problema_id"
+  },
+  "indices": [
+    {
+      "nombre": "estado-index",
+      "partition": "tenant_id",
+      "sort": "estado_creado_en",
+      "proposito": "Listar y contar problemas por estado sin hacer Scan."
+    }
+  ],
+  "estados": ["NUEVO", "EN_ANALISIS", "ERROR_CONOCIDO", "RESUELTO", "CERRADO"],
+  "ejemplo": {
+    "tenant_id": "acme",
+    "problema_id": "prb-acme-000001",
+    "titulo": "Caídas recurrentes del servidor de correo",
+    "descripcion": "Se investigan incidentes recurrentes de correo.",
+    "prioridad": "P2",
+    "estado": "EN_ANALISIS",
+    "estado_creado_en": "EN_ANALISIS#2026-11-07T12:00:00Z",
+    "causa_raiz": null,
+    "workaround": null,
+    "incidentes_ids": ["inc-acme-000010"],
+    "cambio_id": null,
+    "responsable_id": "usr-acme-00003",
+    "creado_en": "2026-11-07T12:00:00Z",
+    "actualizado_en": "2026-11-07T12:00:00Z"
+  }
+}

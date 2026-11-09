@@ -1,0 +1,213 @@
+service: itsm-problemas
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  environment:
+    PROBLEMAS_TABLE: ${self:service}-${sls:stage}-problemas
+    EVENTS_TOPIC_ARN:
+      Ref: ProblemasEventsTopic
+    JWT_SECRET: ${env:JWT_SECRET}
+  iam:
+    role: arn:aws:iam::${aws:accountId}:role/LabRole
+
+functions:
+  authorizer:
+    handler: src.common.auth.authorize
+    timeout: 5
+  api:
+    handler: src.handlers.problemas.handler
+    timeout: 15
+    events:
+      - http:
+          path: problemas
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/resumen
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}
+          method: put
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}
+          method: delete
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}/estado
+          method: patch
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}/causa-raiz
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+      - http:
+          path: problemas/{id}/incidentes
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+  consumeEvents:
+    handler: src.consumers.events.handler
+    timeout: 30
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [ProblemasQueue, Arn]
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  Resources:
+    ProblemasTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.PROBLEMAS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: problema_id
+            AttributeType: S
+          - AttributeName: estado_creado_en
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: problema_id
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: estado-index
+            KeySchema:
+              - AttributeName: tenant_id
+                KeyType: HASH
+              - AttributeName: estado_creado_en
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+    ProblemasEventsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: itsm-eventos-problemas-${sls:stage}
+    ProblemasDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: q-problemas-${sls:stage}-dlq
+        MessageRetentionPeriod: 1209600
+    ProblemasQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: q-problemas-${sls:stage}
+        VisibilityTimeout: 180
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt: [ProblemasDLQ, Arn]
+          maxReceiveCount: 3
+    ProblemasQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - Ref: ProblemasQueue
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action: sqs:SendMessage
+              Resource:
+                Fn::GetAtt: [ProblemasQueue, Arn]
+              Condition:
+                ArnEquals:
+                  aws:SourceArn:
+                    Ref: ProblemasEventsTopic
+    ProblemasSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn:
+          Ref: ProblemasEventsTopic
+        Protocol: sqs
+        Endpoint:
+          Fn::GetAtt: [ProblemasQueue, Arn]
+        FilterPolicy:
+          evento:
+            - incidente.escalado_a_problema
+            - cambio.implementado
+        RawMessageDelivery: true
+    Default4xxGatewayResponse:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ResponseType: DEFAULT_4XX
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+    Default5xxGatewayResponse:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ResponseType: DEFAULT_5XX
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+
+  Outputs:
+    ProblemasApiUrl:
+      Description: Base URL for the Problemas API
+      Value:
+        Fn::Join:
+          - ""
+          - - https://
+            - Ref: ApiGatewayRestApi
+            - .execute-api.
+            - ${self:provider.region}
+            - .amazonaws.com/
+            - ${sls:stage}
+    ProblemasTableName:
+      Value:
+        Ref: ProblemasTable
+    ProblemasEventsTopicArn:
+      Value:
+        Ref: ProblemasEventsTopic
