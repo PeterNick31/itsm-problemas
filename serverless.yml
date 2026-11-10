@@ -8,7 +8,8 @@ provider:
   stage: ${opt:stage, 'dev'}
   environment:
     PROBLEMAS_TABLE: ${self:service}-${sls:stage}-problemas
-    EVENTS_TOPIC_ARN: ${ssm:/itsm/${sls:stage}/sns-eventos-arn}
+    EVENTS_ENABLED: ${env:EVENTS_ENABLED, 'false'}
+    EVENTS_TOPIC_ARN: ${env:EVENTS_TOPIC_ARN, ''}
   iam:
     role: arn:aws:iam::${aws:accountId}:role/LabRole
 
@@ -69,14 +70,20 @@ functions:
           method: post
           cors: true
           authorizer: ${self:custom.authorizer}
-  consumeEvents:
-    handler: src.consumers.events.handler
-    timeout: 30
-    events:
-      - sqs:
-          arn: ${ssm:/itsm/${sls:stage}/q-problemas-arn}
-          batchSize: 10
-          functionResponseType: ReportBatchItemFailures
+
+package:
+  patterns:
+    - '!seed/**'
+    - '!tests/**'
+    - '!docs/**'
+    - '!README.md'
+    - '!.venv/**'
+    - '!venv/**'
+    - '!node_modules/**'
+    - '!.serverless/**'
+    - '!scripts/**'
+    - '!src/consumers/**'
+    - '!src/common/auth.py'
 
 resources:
   Resources:
