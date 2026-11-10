@@ -8,10 +8,11 @@ Microservicio de análisis de causa raíz de incidentes. El stack crea la tabla 
 - Node.js 20 y npm
 - AWS CLI configurado; `LabRole` con permisos para Lambda, API Gateway, DynamoDB, lectura de SSM, publicación SNS y consumo SQS
 - Serverless Framework 3: `npm install --global serverless@3`
+- `itsm-infra` y `itsm-auth` desplegados en la misma cuenta AWS, región `us-east-1` y stage
 
 ## Archivos principales
 
-- `serverless.yml`: API, tabla, autorización y referencias SSM a la infraestructura compartida.
+- `serverless.yml`: API, tabla y referencias SSM al authorizer y bus compartidos.
 - `src/handlers/problemas.py`: endpoints CRUD y flujos de estado.
 - `src/consumers/events.py`: reacciones a escalamiento de incidentes e implementación de cambios.
 - `seed/seed_problemas.py`: datos ficticios repetibles por tenant.
@@ -19,7 +20,7 @@ Microservicio de análisis de causa raíz de incidentes. El stack crea la tabla 
 
 ## Requisitos para desplegar
 
-Antes de desplegar, `itsm-infra` debe estar desplegado en la **misma cuenta AWS** y en `us-east-1` para el stage elegido. El stack lee los parámetros `/itsm/{stage}/sns-eventos-arn` y `/itsm/{stage}/q-problemas-arn` que Infra publica. El rol `LabRole` debe poder leer esos parámetros, publicar al tópico y consumir de la cola.
+Antes de desplegar, `itsm-infra` e `itsm-auth` deben estar desplegados en la misma cuenta AWS, región `us-east-1` y stage. Este stack consume los parámetros `/itsm/{stage}/sns-eventos-arn`, `/itsm/{stage}/q-problemas-arn` y `/itsm/{stage}/authorizer-arn`. El rol `LabRole` necesita permiso para leerlos y para publicar en SNS y consumir de SQS. La autenticación y firma del JWT son responsabilidad de `itsm-auth`; Problemas usa su Lambda Authorizer compartido.
 
 El JWT se valida con el secreto compartido guardado como SecureString en `/itsm/{stage}/jwt-secret`. Este debe ser el mismo secreto que usa el servicio de autenticación. Para una prueba completamente aislada, se puede usar `JWT_SECRET` del entorno como alternativa, pero el stack sigue necesitando el bus SNS/SQS compartido. No guardes secretos en Git:
 
@@ -28,7 +29,7 @@ $env:JWT_SECRET = "reemplaza-por-un-secreto-local-largo"
 serverless deploy --stage dev
 ```
 
-El authorizer de este repositorio valida JWT HS256 y requiere `tenant_id`, `sub`, `rol` y `exp`. Para pruebas manuales genera un token:
+Para pruebas unitarias, este repositorio conserva utilidades locales para validar y generar JWT. Para llamar a la API desplegada, inicia sesión mediante `itsm-auth` y envía el token que devuelve en la cabecera `Authorization: Bearer <token>`. El authorizer compartido debe exponer el contexto `tenant_id`, `usuario_id` y `rol`.
 
 ```powershell
 $env:JWT_SECRET = "el-mismo-secreto-del-despliegue"
@@ -62,6 +63,8 @@ El consumidor escucha la cola compartida `q-problemas`, que Infra suscribe al t�
 - `incidente.escalado_a_problema`: crea idempotentemente un problema vinculado al incidente.
 - `cambio.implementado`: marca el problema como `RESUELTO` y publica `problema.resuelto`. Si el evento no incluye `problema_id` (por ejemplo, un cambio originado desde Solicitudes), se ignora.
 
+El consumidor de Incidentes necesita que `problema.resuelto.data` incluya `problema_id` e `incidentes_ids`; Problemas publica ambos campos para que Incidentes resuelva los incidentes vinculados. El contrato de `incidente.escalado_a_problema` del repo de Incidentes incluye `incidente_id`, `titulo`, `descripcion`, `prioridad` y `escalado_por`; Problemas usa esos datos y asigna el problema al agente que hizo el escalamiento.
+
 Al resolver desde el consumidor, el registro conserva una marca pendiente hasta que SNS confirma la publicación; un reintento puede volver a publicar el evento, por lo que los consumidores deben tolerar duplicados.
 
 La cola compartida tiene su DLQ y política de reintentos gestionadas por Infra. Los consumidores deben ser idempotentes porque SQS ofrece entrega al menos una vez.
@@ -88,9 +91,9 @@ Las pruebas unitarias no requieren acceso a AWS. Para probar endpoints y eventos
 
 ## Integración con el grupo
 
-1. Verificar que Infra esté desplegada en la misma cuenta AWS, región `us-east-1` y stage `dev`, y que existan sus dos parámetros SSM de SNS/SQS.
-2. Confirmar con el integrante 5 el formato del JWT y que `/itsm/dev/jwt-secret` sea el secreto compartido. El authorizer local del microservicio puede sustituirse al acordar el ARN del authorizer común.
-3. Confirmar con Incidentes el contenido de `incidente.escalado_a_problema` y con Cambios que `cambio.implementado` incluya `tenant_id` y `problema_id`.
+1. Verificar que Infra y Auth estén desplegados en la misma cuenta AWS, región `us-east-1` y stage `dev`, y que existan los parámetros SSM de SNS, `q-problemas` y authorizer.
+2. Confirmar que el contexto del authorizer incluya `tenant_id`, `usuario_id` y `rol`.
+3. Confirmar con Cambios que `cambio.implementado` incluya `tenant_id` y `problema_id`.
 4. Compartir IDs de prueba con Cambios y la URL de API con el responsable del frontend.
 
 No subas credenciales reales ni despliegues el microservicio antes de que Infra publique los parámetros requeridos.

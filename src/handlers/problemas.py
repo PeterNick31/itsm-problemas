@@ -280,7 +280,16 @@ def _handle(event):
         state = _body(event).get("estado")
         new_state = _update_state(tenant_id, problem_id, state)
         if new_state == "RESUELTO":
-            publish("problema.resuelto", tenant_id, {"problema_id": problem_id})
+            item = _get_problem(tenant_id, problem_id)
+            publish(
+                "problema.resuelto",
+                tenant_id,
+                {
+                    "problema_id": problem_id,
+                    "incidentes_ids": item.get("incidentes_ids", []),
+                },
+            )
+            return response(200, {"data": item})
         return response(200, {"data": _get_problem(tenant_id, problem_id)})
 
     if method == "POST" and path == "/problemas/{id}/causa-raiz":

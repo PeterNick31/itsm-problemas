@@ -24,7 +24,7 @@ def _problem_from_incident(tenant_id, data):
         raise ValueError("El evento no contiene un incidente_id válido para su tenant")
     title = data.get("titulo") or f"Problema originado por {incident_id}"
     priority = data.get("prioridad", "P3")
-    responsable_id = data.get("responsable_id", "")
+    responsable_id = data.get("responsable_id") or data.get("escalado_por", "")
     if not isinstance(title, str) or priority not in {"P1", "P2", "P3", "P4"}:
         raise ValueError("El evento contiene título o prioridad inválidos")
     if responsable_id and (
@@ -73,7 +73,11 @@ def _resolve_problem(tenant_id, data):
     if not item:
         raise ValueError(f"No existe el problema {problem_id} del evento")
     if item["estado"] in {"RESUELTO", "CERRADO"}:
-        return problem_id, bool(item.get("evento_resuelto_pendiente"))
+        return (
+            problem_id,
+            bool(item.get("evento_resuelto_pendiente")),
+            item.get("incidentes_ids", []),
+        )
     now = _now()
     TABLE.update_item(
         Key={"tenant_id": tenant_id, "problema_id": problem_id},
@@ -91,7 +95,7 @@ def _resolve_problem(tenant_id, data):
         },
         ConditionExpression="#state = :old",
     )
-    return problem_id, True
+    return problem_id, True, item.get("incidentes_ids", [])
 
 
 def _acknowledge_resolved_event(tenant_id, problem_id):
@@ -134,9 +138,16 @@ def handler(event, _context):
                         record["messageId"],
                     )
                     continue
-                problem_id, changed = _resolve_problem(tenant_id, data)
+                problem_id, changed, incident_ids = _resolve_problem(tenant_id, data)
                 if changed:
-                    publish("problema.resuelto", tenant_id, {"problema_id": problem_id})
+                    publish(
+                        "problema.resuelto",
+                        tenant_id,
+                        {
+                            "problema_id": problem_id,
+                            "incidentes_ids": incident_ids,
+                        },
+                    )
                     _acknowledge_resolved_event(tenant_id, problem_id)
             else:
                 raise ValueError(f"Evento no soportado por q-problemas: {event_name}")

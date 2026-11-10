@@ -9,14 +9,17 @@ provider:
   environment:
     PROBLEMAS_TABLE: ${self:service}-${sls:stage}-problemas
     EVENTS_TOPIC_ARN: ${ssm:/itsm/${sls:stage}/sns-eventos-arn}
-    JWT_SECRET: ${ssm:/itsm/${sls:stage}/jwt-secret~true, env:JWT_SECRET}
   iam:
     role: arn:aws:iam::${aws:accountId}:role/LabRole
 
-functions:
+custom:
   authorizer:
-    handler: src.common.auth.authorize
-    timeout: 5
+    arn: ${ssm:/itsm/${sls:stage}/authorizer-arn}
+    type: token
+    identitySource: method.request.header.Authorization
+    resultTtlInSeconds: 0
+
+functions:
   api:
     handler: src.handlers.problemas.handler
     timeout: 15
@@ -25,65 +28,47 @@ functions:
           path: problemas
           method: get
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas
           method: post
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/resumen
           method: get
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}
           method: get
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}
           method: put
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}
           method: delete
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}/estado
           method: patch
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}/causa-raiz
           method: post
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
       - http:
           path: problemas/{id}/incidentes
           method: post
           cors: true
-          authorizer:
-            name: authorizer
-            resultTtlInSeconds: 0
+          authorizer: ${self:custom.authorizer}
   consumeEvents:
     handler: src.consumers.events.handler
     timeout: 30

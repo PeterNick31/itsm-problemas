@@ -59,6 +59,31 @@ class HandlerTests(unittest.TestCase):
         self.assertIn("FilterExpression", query.call_args.kwargs)
         self.assertEqual(json.loads(result["body"])["data"], [])
 
+    def test_resolving_problem_publishes_linked_incident_ids(self):
+        event = api_event("PATCH", "/problemas/{id}/estado")
+        event["body"] = json.dumps({"estado": "RESUELTO"})
+        item = {
+            "problema_id": "prb-acme-000001",
+            "estado": "RESUELTO",
+            "incidentes_ids": ["inc-acme-000007"],
+        }
+        with (
+            patch.object(problemas, "_update_state", return_value="RESUELTO"),
+            patch.object(problemas, "_get_problem", return_value=item),
+            patch.object(problemas, "publish") as publish,
+        ):
+            result = problemas.handler(event, None)
+
+        self.assertEqual(result["statusCode"], 200)
+        publish.assert_called_once_with(
+            "problema.resuelto",
+            "acme",
+            {
+                "problema_id": "prb-acme-000001",
+                "incidentes_ids": ["inc-acme-000007"],
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
