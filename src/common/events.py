@@ -6,9 +6,6 @@ import boto3
 
 
 def publish(event_name, tenant_id, data):
-    if os.environ.get("EVENTS_ENABLED", "false").lower() != "true":
-        return None
-
     topic_arn = os.environ.get("EVENTS_TOPIC_ARN")
     if not topic_arn:
         raise RuntimeError("EVENTS_TOPIC_ARN no está configurado")
