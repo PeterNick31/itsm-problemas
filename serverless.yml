@@ -75,6 +75,7 @@ functions:
     events:
       - sqs:
           arn: ${ssm:/itsm/${sls:stage}/q-problemas-arn}
+          enabled: true
           batchSize: 10
           functionResponseType: ReportBatchItemFailures
 
