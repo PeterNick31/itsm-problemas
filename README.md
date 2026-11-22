@@ -69,6 +69,28 @@ Al resolver desde el consumidor, el registro conserva una marca pendiente hasta 
 
 La cola compartida tiene su DLQ y política de reintentos gestionadas por Infra. Los consumidores deben ser idempotentes porque SQS ofrece entrega al menos una vez.
 
+## Integracion verificada en AWS
+
+Entorno `dev`, region `us-east-1`. Se comprobo el flujo completo de eventos:
+
+1. El incidente `inc-acme-010001` publico `incidente.escalado_a_problema`.
+2. El consumidor creo el problema `prb-acme-evt856d7948b6b3`.
+3. El registro de causa raiz publico `problema.causa_raiz_identificada`.
+4. Cambios genero el RFC `chg-acme-e40688e8e5ca`.
+5. La implementacion del RFC publico `cambio.implementado`.
+6. Problemas proceso el evento y paso automaticamente a `RESUELTO`.
+7. El evento `problema.resuelto` permitio que Incidentes resolviera `inc-acme-010001`.
+
+La integracion utiliza SNS, SQS, Lambda y DynamoDB, sin actualizaciones manuales de estado en las tablas.
+
+### Verificacion operativa
+
+Durante la prueba, el event source mapping de `itsm-problemas-dev-consumeEvents` aparecio deshabilitado y se acumularon dos mensajes en `itsm-q-problemas-dev`.
+
+Tras habilitar el mapping, se procesaron los mensajes pendientes, el problema y el incidente quedaron resueltos y las colas de Problemas e Incidentes, incluidas sus DLQ, quedaron vacias.
+
+La causa de la deshabilitacion no se determino. Antes de una demostracion o un nuevo despliegue, verificar que el mapping permanezca en estado `Enabled`.
+
 ## Datos ficticios
 
 Después del despliegue:
